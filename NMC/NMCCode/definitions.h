@@ -15,6 +15,8 @@
 
 #define    PHOTON_TOTAL 100000
 #define    PHOTON_BATCH 10000
+#define    RAMAN_BATCH  1000
+#define    N_STEPS      30000
 #define    MAX_SPECKLES_PER_PIXEL 1000
 #define    MAX_SCATT    10000
 #define    WEIGHT_MIN   10e-4
@@ -24,6 +26,7 @@
 #define    MAXLAYERS 100
 #define    MAX_SCATT_POL 150
 #define    POL_CHANNELS 4
+#define    RENDER_STEP 1000
 
 #define    FIRST_MEDIUM_LAYER  1
 
@@ -206,6 +209,19 @@ struct RunParams
     /* time */
     float    time_min;               // Requested time duration of computation.
     enum MC_SIM_TYPE mckernelflag;        // Type of MC simulation
+    
+    /* Raman launch parameters */
+    float step_size;
+    int ph_total, ph_batch;
+    float width;
+
+    float laser_beam_radius;
+    float laser_beam_pulse_width;
+    float laser_beam_pulse_delay;
+    float cutoff_radius;
+    
+    float zf;
+    float NA;
 };
 
 struct TissueParams
@@ -215,6 +231,10 @@ struct TissueParams
     float     musv[Ntiss];            // scattering coeff.
     float     gv[Ntiss];              // anisotropy of scattering
     float     gf[Ntiss],af[Ntiss],gb[Ntiss],ab[Ntiss],CC[Ntiss]; // two term phase scattering function paprameters
+    
+    /* raman tissue parameters */
+    float n,g,r_s,r_a;
+    float raman_prob,stim_raman_prob,interaction_distance;
 };
 
 struct SPECKLE
@@ -259,6 +279,25 @@ typedef struct
     float r;
     float theta;
 } REAL2_POLAR;
+
+/* RAMAN KERNEL */
+struct PhotonData
+{
+    int     marker;
+    float   x;
+    float   y;
+    float   z;
+    float   t;
+    float   W;
+    int     type;
+};
+
+struct RadiationData
+{
+    float   laserRd;
+    float   ramanRd;
+    float   srsRd;
+};
 
 
 #endif /* definitions_h */

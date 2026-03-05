@@ -19,109 +19,70 @@ void ReadRunParams(const char * argv[], struct RunParams* runParams, struct Tiss
     char    filename[STRLEN];   // temporary filename for writing output.
     FILE*    fid = NULL;        // file ID pointer
     char    buf[32];            // buffer for reading header.dat
-
+    
     strcpy(runParams->myname, argv[1]);    // acquire name from argument of function call by user.
-    printf("name = %s\n", runParams->myname);
-
-    /**** INPUT FILES *****/
-    /* IMPORT myname_H.mci */
+    NSLog(@"Reading file %s_H.mci\n", runParams->myname);
+    
     strcpy(filename, runParams->myname);
     strcat(filename, "_H.mci");
+    
     fid = fopen(filename, "r");
     fgets(buf, 32, fid);
-    // run parameters
-    sscanf(buf, "%f", &runParams->time_min); // desired time duration of run [min]
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->Nx);  // # of bins
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->Ny);  // # of bins
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->Nz);  // # of bins
-
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->dx);     // size of bins [mm]
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->dy);     // size of bins [mm]
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->dz);     // size of bins [mm]
-
-    // launch parameters
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->mcflag);  // mcflag, 0 = uniform, 1 = Gaussian, 2 = iso-pt
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->launchflag);  // launchflag, 0 = ignore, 1 = manually set
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->boundaryflag);  // 0 = no boundaries, 1 = escape at all boundaries, 2 = escape at surface only
-
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->xs);  // initial launch point
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->ys);  // initial launch point
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->zs);  // initial launch point
-
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->xfocus);  // xfocus
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->yfocus);  // yfocus
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->zfocus);  // zfocus
-
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->ux0);  // ux trajectory
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->uy0);  // uy trajectory
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->uz0);  // uz trajectory
-
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->radius);  // radius
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->waist);  // waist
-
-    fgets(buf, 32,fid);
-    sscanf(buf, "%f", &runParams->zsurf);  // zsurf
+    sscanf(buf, "%d", &runParams->mckernelflag);  // 0 = mcsub, 1 = mcxyz, 2 = mcxyztt, 5 = raman
     
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->det_radius);  // radius
-    
-    fgets(buf, 32, fid);
-    sscanf(buf, "%f", &runParams->xd);  // separation
-    
-    fgets(buf, 32,fid);
-    sscanf(buf, "%f", &runParams->n1);  /* refractive index of medium */
-    
-    fgets(buf, 32,fid);
-    sscanf(buf, "%f", &runParams->n2);   /* refractive index outside medium */
-    
-    fgets(buf, 32,fid);
-    sscanf(buf, "%f", &runParams->na);   /* numerical apperture */
-    
-    fgets(buf, 32,fid);
-    sscanf(buf, "%f", &runParams->lambda);   /* wavelenght */
-    
-    fgets(buf, 32,fid);
-    sscanf(buf, "%f", &runParams->lc);   /* coherence lenght */
-    
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->speckleflag);  // 0 = no speckles, 1 = calc speckles
-    
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->semiflag);  // 1 - semi-analytical
-    
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->det_state);  // detection state
-    
-    fgets(buf, 32, fid);
-    sscanf(buf, "%d", &runParams->mckernelflag);  // 0 = mcsub, 1 = mcxyz, 2 = mcxyztt
-    
-    switch (runParams->mckernelflag)
-    {
-        case SIM_TYPE_MCSUB:
-        case SIM_TYPE_MCXYZ:
-        case SIM_TYPE_POLARIZATION_CBS_ELECTRIC_FIELDS:
+    switch (runParams->mckernelflag) {
         case SIM_TYPE_RAMAN:
         {
+            /**** INPUT FILES *****/
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->width); // [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->Nx);  // # of bins
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->Ny);  // # of bins
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->Nz);  // # of bins
+
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%f", &tissParams->n);     // [-]
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%f", &tissParams->g);     // [-]
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%f", &tissParams->r_s);     // [mm]
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%f", &tissParams->r_a);     // [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->raman_prob);     // [-]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->stim_raman_prob);     // [-]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->interaction_distance);     // [mm]
+
+            // launch parameters
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->step_size);  // [mm]
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%d", &runParams->ph_total);  // # of all photons
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%d", &runParams->ph_batch);  // # of photons in a batch
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->laser_beam_radius);  // initial beam radius [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->laser_beam_pulse_width);  // initial beam width [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->laser_beam_pulse_delay);  // initial beam temporal width [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->cutoff_radius);  // cut off radius [mm]
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->zf);  // cut off radius [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->NA);  // cut off radius [mm]
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->det_state);  // detection state
+            
             // tissue optical properties
             fgets(buf, 32, fid);
             sscanf(buf, "%d", &runParams->Nt);                // # of tissue types in tissue list
@@ -133,29 +94,162 @@ void ReadRunParams(const char * argv[], struct RunParams* runParams, struct Tiss
                 fgets(buf, 32, fid);
                 sscanf(buf, "%f", &tissParams->gv[i]);        // anisotropy of scatter [dimensionless]
             }
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->n);     // [-]
+
+            fclose(fid);
+            
         }
         break;
+        case SIM_TYPE_MCSUB:
+        case SIM_TYPE_MCXYZ:
+        case SIM_TYPE_POLARIZATION_CBS_ELECTRIC_FIELDS:
         case SIM_TYPE_MCXYZ_TT:
         {
-            // tissue optical properties
+            /**** INPUT FILES *****/
+            /* IMPORT myname_H.mci */
+//            strcpy(filename, runParams->myname);
+//            strcat(filename, "_H.mci");
+//            fid = fopen(filename, "r");
+//            fgets(buf, 32, fid);
+            // run parameters
+            sscanf(buf, "%f", &runParams->time_min); // desired time duration of run [min]
             fgets(buf, 32, fid);
-            sscanf(buf, "%d", &runParams->Nt);                // # of tissue types in tissue list
-            for (int i = 1; i <= runParams->Nt; i++) {
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->muav[i]);    // absorption coeff [mm^-1]
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->musv[i]);    // scattering coeff [mm^-1]
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->gf[i]);        // gf
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->af[i]);        // af
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->gb[i]);        // gb
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->ab[i]);        // ab
-                fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->CC[i]);        // CC
+            sscanf(buf, "%d", &runParams->Nx);  // # of bins
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->Ny);  // # of bins
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->Nz);  // # of bins
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->dx);     // size of bins [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->dy);     // size of bins [mm]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->dz);     // size of bins [mm]
+
+            // launch parameters
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->mcflag);  // mcflag, 0 = uniform, 1 = Gaussian, 2 = iso-pt
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->launchflag);  // launchflag, 0 = ignore, 1 = manually set
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->boundaryflag);  // 0 = no boundaries, 1 = escape at all boundaries, 2 = escape at surface only
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->xs);  // initial launch point
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->ys);  // initial launch point
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->zs);  // initial launch point
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->xfocus);  // xfocus
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->yfocus);  // yfocus
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->zfocus);  // zfocus
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->ux0);  // ux trajectory
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->uy0);  // uy trajectory
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->uz0);  // uz trajectory
+
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->radius);  // radius
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->waist);  // waist
+
+            fgets(buf, 32,fid);
+            sscanf(buf, "%f", &runParams->zsurf);  // zsurf
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->det_radius);  // radius
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &runParams->xd);  // separation
+            
+            fgets(buf, 32,fid);
+            sscanf(buf, "%f", &runParams->n1);  /* refractive index of medium */
+            
+            fgets(buf, 32,fid);
+            sscanf(buf, "%f", &runParams->n2);   /* refractive index outside medium */
+            
+            fgets(buf, 32,fid);
+            sscanf(buf, "%f", &runParams->na);   /* numerical apperture */
+            
+            fgets(buf, 32,fid);
+            sscanf(buf, "%f", &runParams->lambda);   /* wavelenght */
+            
+            fgets(buf, 32,fid);
+            sscanf(buf, "%f", &runParams->lc);   /* coherence lenght */
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->speckleflag);  // 0 = no speckles, 1 = calc speckles
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->semiflag);  // 1 - semi-analytical
+            
+            fgets(buf, 32, fid);
+            sscanf(buf, "%d", &runParams->det_state);  // detection state
+            
+//            fgets(buf, 32, fid);
+//            sscanf(buf, "%d", &runParams->mckernelflag);  // 0 = mcsub, 1 = mcxyz, 2 = mcxyztt
+            
+            switch (runParams->mckernelflag)
+            {
+                case SIM_TYPE_MCSUB:
+                case SIM_TYPE_MCXYZ:
+                case SIM_TYPE_POLARIZATION_CBS_ELECTRIC_FIELDS:
+                {
+                    // tissue optical properties
+                    fgets(buf, 32, fid);
+                    sscanf(buf, "%d", &runParams->Nt);                // # of tissue types in tissue list
+                    for (int i = 1; i <= runParams->Nt; i++) {
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->muav[i]);    // absorption coeff [mm^-1]
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->musv[i]);    // scattering coeff [mm^-1]
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->gv[i]);        // anisotropy of scatter [dimensionless]
+                    }
+                }
+                break;
+                case SIM_TYPE_MCXYZ_TT:
+                {
+                    // tissue optical properties
+                    fgets(buf, 32, fid);
+                    sscanf(buf, "%d", &runParams->Nt);                // # of tissue types in tissue list
+                    for (int i = 1; i <= runParams->Nt; i++) {
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->muav[i]);    // absorption coeff [mm^-1]
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->musv[i]);    // scattering coeff [mm^-1]
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->gf[i]);        // gf
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->af[i]);        // af
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->gb[i]);        // gb
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->ab[i]);        // ab
+                        fgets(buf, 32, fid);
+                        sscanf(buf, "%f", &tissParams->CC[i]);        // CC
+                    }
+                }
+                break;
+                default:
+                {
+                    printf("Unknown or unsupported kernel. quit.\n");
+                    exit(1);
+                }
+                break;
             }
+            
+            fclose(fid);
         }
         break;
         default:
@@ -163,11 +257,33 @@ void ReadRunParams(const char * argv[], struct RunParams* runParams, struct Tiss
             printf("Unknown or unsupported kernel. quit.\n");
             exit(1);
         }
-        break;
     }
+}
 
-    fclose(fid);
-
+char* setDeafaultVoxel(struct RunParams* runParams, struct TissueParams* tissParams)
+{
+    
+    char *v = NULL;
+    int NN = runParams->Nx*runParams->Ny*runParams->Nz;
+    v = (char*)malloc(NN*sizeof(char));  // tissue structure
+    for (int i = 1; i<=NN; i++)
+    {
+        v[i] = '1';
+    }
+    return(v);
+    
+//    char *v = NULL;
+//    int NN = runParams->Nx*runParams->Ny*runParams->Nz;
+//    v = (char*)malloc(NN*sizeof(char));  /* tissue structure */
+//    //char    filename[STRLEN];   // temporary filename for writing output.
+//    FILE*    fid = NULL;               // file ID pointer
+//
+//    // read binary file
+//    fid = fopen("skin_T.bin", "w");
+//    fread(v, sizeof(char), NN, fid);
+//    fclose(fid);
+    
+    return(v);
 }
 
 char* ImportBinaryTissueFile(struct RunParams* runParams, struct TissueParams* tissParams)
@@ -293,6 +409,34 @@ void PrintRunParameters(const struct RunParams* runParams, const struct TissuePa
         printf("%d", v[i]);
     }
     printf("\n\n");
+}
+
+void PrintRunRamanParameters(const struct RunParams* runParams, const struct TissueParams* tissParams)
+{
+    NSLog(@"\nGEOMETRY:\n");
+    NSLog(@"width = %0.2f mm\n", runParams->width);
+    NSLog(@"Nx = %d, Ny = %d, Nz = %d\n", runParams->Nx, runParams->Ny, runParams->Nz);
+
+    NSLog(@"\nRUN:\n");
+    NSLog(@"step size = %0.4f [mm]\n", runParams->step_size);
+//    NSLog(@"photon total = %d, batch = %d\n", runParams->ph_total, runParams->ph_batch);
+    NSLog(@"detection state = %d\n", runParams->det_state);
+    
+    NSLog(@"\nMEDIUM:\n");
+    for (int i = 1; i <= runParams->Nt; i++) {
+        NSLog(@"muav[%d] = %0.4f [mm^-1]\n", i, tissParams->muav[i]);
+        NSLog(@"musv[%d] = %0.4f [mm^-1]\n", i, tissParams->musv[i]);
+        NSLog(@"gv[%d] = %0.4f \n", i, tissParams->gv[i]);
+    }
+    NSLog(@"n = %0.4f\n", tissParams->n);
+    NSLog(@"Raman prob = %0.4f\n", tissParams->raman_prob);
+    NSLog(@"SRS prob = %0.4f, interaction distance = %0.4f [mm]\n", tissParams->stim_raman_prob, tissParams->interaction_distance);
+    
+    NSLog(@"\nINITIAL CONDITION:\n");
+    NSLog(@"Beam width = %0.4f, beam delay = %0.4f\n", runParams->laser_beam_pulse_width, runParams->laser_beam_pulse_delay);
+    NSLog(@"Beam radius = %0.4f [mm], Cut-off radius = %0.4f [mm]\n", runParams->laser_beam_radius, runParams->cutoff_radius);
+    
+    NSLog(@"\n\n");
 }
 
 void SaveOpticalProperties(const struct RunParams* runParams, const struct TissueParams* tissParams)

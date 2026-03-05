@@ -85,6 +85,12 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
     id<MTLBuffer> _mBufferRunNum;
     id<MTLBuffer> _mBufferTimeSeed;
     
+    id<MTLBuffer> _mBufferRamanRad2D;
+    id<MTLBuffer> _mBufferPhotonData;
+    id<MTLBuffer> _mBufferSRSdataCoordinates;
+    id<MTLBuffer> _mBufferSRSdataDirections;
+    id<MTLBuffer> _mBufferSRSdataType;
+    
     id<MTLBuffer> _mBufferIntensity_radial;
     id<MTLBuffer> _mBufferIntensity_azimuthal;
     id<MTLBuffer> _mBufferPhase_radial;
@@ -221,7 +227,7 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
             memset(v_dev, 0x0, buff_v_size);
             memcpy(v_dev, v, buff_v_size);
             
-            unsigned long bufferSizeF3D = (long)run_params->Nz*run_params->Ny*run_params->Nz * sizeof(float);
+            unsigned long bufferSizeF3D = (long)run_params->Nx*run_params->Ny*run_params->Nz * sizeof(float);
             _mBufferF3D = [_mDevice newBufferWithLength:bufferSizeF3D options:MTLResourceStorageModeShared];
             
             unsigned long bufferSizeRd = PHOTON_BATCH * sizeof(float);
@@ -328,6 +334,31 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
         break;
         case SIM_TYPE_RAMAN:
         {
+            _mBufferRunParams = [_mDevice newBufferWithLength:sizeof(struct RunParams) options:MTLResourceStorageModeShared];
+            struct RunParams* rpr = _mBufferRunParams.contents;
+            memset(rpr, 0x0, sizeof(struct RunParams));
+            memcpy(rpr, run_params, sizeof(struct RunParams));
+            
+            _mBufferTissPrams = [_mDevice newBufferWithLength:sizeof(struct TissueParams) options:MTLResourceStorageModeShared];
+            struct TissueParams* tpr = _mBufferTissPrams.contents;
+            memset(tpr, 0x0, sizeof(struct TissueParams));
+            memcpy(tpr, tissParams, sizeof(struct TissueParams));
+            
+            unsigned int buff_v_size = run_params->Nx*run_params->Ny*run_params->Nz*sizeof(char);
+            _mBufferV = [_mDevice newBufferWithLength: buff_v_size options:MTLResourceStorageModeShared];
+            char* v_dev = _mBufferV.contents;
+            memset(v_dev, 0x0, buff_v_size);
+            memcpy(v_dev, v, run_params->Nx*run_params->Ny*run_params->Nz*sizeof(char));
+            
+            
+            //unsigned long bufferSizeRd2D = (long)PHOTON_BATCH * run_params->Nz*run_params->Ny * sizeof(float);
+            _mBufferRamanRad2D = [_mDevice newBufferWithLength:run_params->Nx*run_params->Ny * sizeof(struct RadiationData) options:MTLResourceStorageModeShared];
+            struct RadiationData* rd_raman_dev_2d = _mBufferRamanRad2D.contents;
+            memset(rd_raman_dev_2d, 0x0, run_params->Nx*run_params->Ny * sizeof(struct RadiationData));
+            
+            _mBufferPhotonData = [_mDevice newBufferWithLength:sizeof(struct PhotonData)*RAMAN_BATCH*N_STEPS options:MTLResourceStorageModeShared];
+            struct PhotonData* raman3D = _mBufferPhotonData.contents;
+            memset(raman3D, 0x0, sizeof(struct PhotonData)*RAMAN_BATCH*N_STEPS);
             
         }
         break;
@@ -350,7 +381,7 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
             memset(v_dev, 0x0, buff_v_size);
             memcpy(v_dev, v, run_params->Nx*run_params->Ny*run_params->Nz*sizeof(char));
             
-            unsigned long bufferSizeF3D = (long)run_params->Nz*run_params->Ny*run_params->Nz * sizeof(float);
+            unsigned long bufferSizeF3D = (long)run_params->Nx*run_params->Ny*run_params->Nz * sizeof(float);
             _mBufferF3D = [_mDevice newBufferWithLength:bufferSizeF3D options:MTLResourceStorageModeShared];
             
             unsigned long bufferSizeRd = PHOTON_BATCH * sizeof(float);
@@ -406,6 +437,7 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
 
 }
 
+
 - (void)encodeMCCommand:(id<MTLComputeCommandEncoder>)computeEncoder {
     
     // Encode the pipeline state object and its parameters.
@@ -456,7 +488,15 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
         break;
         case SIM_TYPE_RAMAN:
         {
-
+            [computeEncoder setBuffer:_mBufferRunParams offset:0 atIndex:0];
+            [computeEncoder setBuffer:_mBufferTissPrams offset:0 atIndex:1];
+            [computeEncoder setBuffer:_mBufferV offset:0 atIndex:2];
+            [computeEncoder setBuffer:_mBufferRamanRad2D offset:0 atIndex:3];
+            [computeEncoder setBuffer:_mBufferPhotonData offset:0 atIndex:4];
+            [computeEncoder setBuffer:_mBufferSRSdataCoordinates offset:0 atIndex:5];
+            [computeEncoder setBuffer:_mBufferSRSdataDirections offset:0 atIndex:6];
+            [computeEncoder setBuffer:_mBufferSRSdataType offset:0 atIndex:7];
+            [computeEncoder setBuffer:_mBufferRunNum offset:0 atIndex:8];
         }
         break;
         case SIM_TYPE_MCXYZ:
@@ -479,15 +519,38 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
         }
         break;
     }
+    MTLSize gridSize;
+    NSUInteger threadGroupSize;
     
-    MTLSize gridSize = MTLSizeMake(PHOTON_BATCH, 1, 1);
-    
-    // Calculate a threadgroup size.
-    NSUInteger threadGroupSize = _mMCFunctionPSO.maxTotalThreadsPerThreadgroup;
-    if (threadGroupSize > PHOTON_BATCH)
+    switch (_mRunParams.mckernelflag)
     {
-        threadGroupSize = PHOTON_BATCH;
+        case SIM_TYPE_RAMAN:
+            gridSize = MTLSizeMake(RAMAN_BATCH, 1, 1);
+            threadGroupSize = _mMCFunctionPSO.maxTotalThreadsPerThreadgroup;
+            if (threadGroupSize > RAMAN_BATCH)
+            {
+                threadGroupSize = RAMAN_BATCH;
+            }
+            break;
+        default:
+            gridSize = MTLSizeMake(PHOTON_BATCH, 1, 1);
+            
+            // Calculate a threadgroup size.
+            threadGroupSize = _mMCFunctionPSO.maxTotalThreadsPerThreadgroup;
+            if (threadGroupSize > PHOTON_BATCH)
+            {
+                threadGroupSize = PHOTON_BATCH;
+            }
+            break;
     }
+//    MTLSize gridSize = MTLSizeMake(PHOTON_BATCH, 1, 1);
+//    
+//    // Calculate a threadgroup size.
+//    NSUInteger threadGroupSize = _mMCFunctionPSO.maxTotalThreadsPerThreadgroup;
+//    if (threadGroupSize > PHOTON_BATCH)
+//    {
+//        threadGroupSize = PHOTON_BATCH;
+//    }
     MTLSize threadgroupSize = MTLSizeMake(threadGroupSize, 1, 1);
     
     // Encode the compute command.
@@ -504,6 +567,35 @@ int loadFloatArrayFromFile(NSString *filename, float array[], int maxSize) {
     *time_seed = *timeSeed;
 }
 
+- (void) setSRSArray;
+{
+    unsigned long bufferSizeSRSdata = (long)sizeof(float)*3*RAMAN_BATCH*N_STEPS;
+    _mBufferSRSdataCoordinates = [_mDevice newBufferWithLength:bufferSizeSRSdata options:MTLResourceStorageModeShared];
+    _mBufferSRSdataDirections = [_mDevice newBufferWithLength:bufferSizeSRSdata options:MTLResourceStorageModeShared];
+    
+    unsigned long bufferSizeSRSdataType = (long)sizeof(int)*RAMAN_BATCH*N_STEPS;
+    _mBufferSRSdataType = [_mDevice newBufferWithLength:bufferSizeSRSdataType options:MTLResourceStorageModeShared];
+    //struct SRSPhotonData* DATA = _mBufferSRSdata.contents;
+    //memset(_mBufferSRSdata.contents, 0x0, bufferSizeSRSdata);
+}
+
+
+- (void) getRamanResults:(struct RadiationData*)RadiationDataResults :(struct PhotonData*) PhotonDataResults
+{
+    struct PhotonData* MetalPhotonData = _mBufferPhotonData.contents;
+    memcpy(PhotonDataResults, MetalPhotonData, RAMAN_BATCH*N_STEPS*sizeof(struct PhotonData));
+    
+    struct RadiationData* MetalRamanRd2D = _mBufferRamanRad2D.contents;
+    memcpy(RadiationDataResults, MetalRamanRd2D, _mRunParams.Nx*_mRunParams.Ny * sizeof(struct RadiationData));
+//    for (int i = 0; i < _mRunParams.Nx*_mRunParams.Ny; i++)
+//    {
+//        RadiationDataResults[i].laserRd += MetalRamanRd2D[i].laserRd;
+//        RadiationDataResults[i].ramanRd += MetalRamanRd2D[i].ramanRd;
+//        RadiationDataResults[i].srsRd += MetalRamanRd2D[i].srsRd;
+//    }
+//    memset(MetalRamanRd2D, 0x0, run_params->Nx*run_params->Ny * sizeof(struct RadiationData));
+
+}
 
 - (void)  getComputeResults: (float*) resJ  :(float*) resF :(float*) resF3D :(float*) resSAE :(float*) resRD :(float*) resRd2D :(int*) ResDetPhotons2D :(float*) ResPolXX2D :(float*) ResPolXY2D :(float*) ResPolYX2D :(float*) ResPolYY2D :(float*) ResPolPhase2D0 :(float*) ResPolPhase2D1 :(float*) ResPolPhase2D2 :(float*) ResPolPhase2D3 :(float*) PolVsScatt;
 {

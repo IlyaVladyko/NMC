@@ -356,19 +356,121 @@ public:
 
     // Generate a high-quality random float in range [0, 1)
     thread float rand() {
-        // Apply improved Tausworthe steps
-        state1 = TausStep(state1, 13, 19, 12, 429496729UL);
-        state2 = TausStep(state2, 2, 25, 4, 4294967288UL);
-        state3 = TausStep(state3, 3, 11, 17, 429496280UL);
-        state4 = XorShift(state4); // Strong XOR shift step
+        unsigned int result = 1.0;
+        do{
+            // Apply improved Tausworthe steps
+            state1 = TausStep(state1, 13, 19, 12, 429496729UL);
+            state2 = TausStep(state2, 2, 25, 4, 4294967288UL);
+            state3 = TausStep(state3, 3, 11, 17, 429496280UL);
+            state4 = XorShift(state4); // Strong XOR shift step
 
-        // Final XOR mix to further decorrelate outputs
-        unsigned int result = state1 ^ state2 ^ state3 ^ state4;
+            // Final XOR mix to further decorrelate outputs
+            result = state1 ^ state2 ^ state3 ^ state4;
+        }while(result <= 0.0);
 
-        // Convert to high-precision float in [0, 1) using 24-bit mantissa
+        // Convert to high-precision float in (0, 1) using 24-bit mantissa
         return fma((result >> 8), (1.0f / 16777216.0f), 0.0f);  // Ensures full 24-bit precision
     }
 };
+
+struct Photon
+{
+public:
+    thread Photon()
+    {
+        x = MC_ZERO; y = MC_ZERO; z = MC_ZERO;
+        ux = MC_ZERO; uy = MC_ZERO; uz = MC_ZERO;
+        uxx = MC_ZERO; uyy = MC_ZERO; uzz = MC_ZERO;
+        s = MC_ZERO; sleft = MC_ZERO; costheta = MC_ZERO;
+        sintheta = MC_ZERO; cospsi = MC_ZERO; sinpsi = MC_ZERO;
+        psi = MC_ZERO; num_scatt = 0; W = MC_ONE; absorb = MC_ZERO;
+        photon_status = ALIVE; sv = false; tiss_type = -1;
+        creation_point = {MC_ZERO,MC_ZERO,MC_ZERO}; entry_time = -1.0; exit_time = -1.0;
+    };
+    float   x, y, z;        /* photon position */
+    float   ux, uy, uz;     /* photon trajectory as cosines */
+    float   uxx, uyy, uzz;  /* temporary values used during SPIN */
+    float   s;              /* step sizes. s = -log(RND)/mus [cm] */
+    float   sleft;          /* dimensionless */
+    float   costheta;       /* cos(theta) */
+    float   sintheta;       /* sin(theta) */
+    float   cospsi;         /* cos(psi) */
+    float   sinpsi;         /* sin(psi) */
+    float   psi;            /* azimuthal angle */
+    float   W;              /* photon weight */
+    float   absorb;         /* weighted deposited in a step due to absorption */
+    bool    photon_status;  /* flag = ALIVE=1 or DEAD=0 */
+    bool    sv;             /* Are they in the same voxel? */
+    int     num_scatt;      /* current number of scatttering even */
+    int     tiss_type;      /* current tissue type */
+    int     type;           /* flag: 0 = source, 1 = raman, 2 = srs */
+    //int     srs_flag;
+    
+    float3  creation_point;
+    float   entry_time;
+    float   exit_time;
+};
+
+typedef struct ramanPhoton
+{
+public:
+    thread ramanPhoton()
+    {
+        x = MC_ZERO; y = MC_ZERO; z = MC_ZERO;
+        ux = MC_ZERO; uy = MC_ZERO; uz = MC_ZERO;
+        creation_point = (MC_ZERO,MC_ZERO,MC_ZERO); ph_time = MC_ZERO;
+    };
+    float   x, y, z;        /* photon position */
+    float   ux, uy, uz;     /* photon trajectory as cosines */
+    int     photon_type;    /* flag: 0 = source, 1 = raman, 2 = srs */
+    
+    float3  creation_point;
+    float   ph_time;
+} ramanPhoton;
+
+inline void updatePhotonPosition(thread Photon &photon, float vdt, float3 oldPos) {
+    photon.x = photon.ux * vdt + oldPos.x;
+    photon.y = photon.uy * vdt + oldPos.y;
+    photon.z = photon.uz * vdt + oldPos.z;
+}
+
+inline float2 HG_theta(float g, float xi)
+{
+    float c_theta, s_theta, temp;
+    if( g == 0.0 )
+    {
+        c_theta = 2*xi - 1;
+    }
+    else
+    {
+        temp = (1.0-g*g)/(1.0-g+2.0*g*xi);
+        c_theta = 1.0/(2*g)*( 1.0 + g*g - temp*temp );
+    }
+    s_theta = sqrt( 1.0 - c_theta*c_theta );
+    float2 ans = float2(c_theta,s_theta);
+    return(ans);
+}
+
+inline void updatePhotonDirection(thread Photon &photon, float g, float3 oldDir, thread RandomGen &randGen) {
+    float phi = 2.0f * PI * randGen.rand();
+    float2 cos_sin_theta = HG_theta(g, randGen.rand());
+    float c_theta = cos_sin_theta.x; // cos_theta(g, randGen.rand());
+    float s_theta = cos_sin_theta.y; //sin_theta(g, randGen.rand());
+    float c_phi = cos(phi);
+    float s_phi = sin(phi);
+    float temp;
+
+    if (FltEq(oldDir.z, MC_ONE)) {
+        photon.ux = s_theta*c_phi;
+        photon.uy = s_theta*s_phi;
+        photon.uz = oldDir.z * c_theta;
+    } else {
+        temp = sqrt( 1.0 - oldDir.z*oldDir.z);
+        photon.ux = s_theta/temp*( oldDir.y*s_phi - oldDir.z*oldDir.x*c_phi ) + oldDir.x*c_theta;
+        photon.uy = s_theta/temp*( -oldDir.x*s_phi - oldDir.z*oldDir.y*c_phi ) + oldDir.y*c_theta;
+        photon.uz = s_theta*temp*c_phi + oldDir.z*c_theta;
+    }
+}
 
 
 /*

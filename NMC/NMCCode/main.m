@@ -19,7 +19,7 @@
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
         
-        // Simulation Parameters and results (initiated based on type of simulation)
+        /* Simulation Parameters and results (initiated based on type of simulation) */
         struct RunParams runParams;
         struct TissueParams tissParams;
         float* ResJ_GPU = NULL;
@@ -36,16 +36,21 @@ int main(int argc, const char * argv[]) {
         float* ResPolElectrciField2D_Phase_GPU2 = NULL;
         float* ResPolElectrciField2D_Phase_GPU3 = NULL;
         int*   ResDetPhotons2D_GPU = NULL;
+        struct PhotonData* PhotonData_GPU = NULL;
+        struct RadiationData* Rad2D_GPU = NULL;
         char* v = NULL;
         float ResSAE_GPU[3] = {0};
         float ResPolVsScatt[MAX_SCATT_POL*POL_CHANNELS] = {0};
         float t_seed = clock();
+        double elapsedNS = 0.0;
         
-        //ReadRunParamsRaman(argc, argv, &runParams, &tissParams);
-        //return 0;
-        
+        /* READ INPUT PARAMS OF THE SIMULATION */
         ReadRunParams(argv, &runParams, &tissParams);
-        
+//        NSLog(@"det_state = %d", runParams.det_state);
+//        PrintRunRamanParameters(&runParams, &tissParams);
+//        return 0;
+
+        /* ALLOCATE MEMORY */
         switch (runParams.mckernelflag)
         {
             case SIM_TYPE_MCSUB:
@@ -59,7 +64,7 @@ int main(int argc, const char * argv[]) {
                 PrintRunParameters(&runParams, &tissParams, v);
                 SaveOpticalProperties(&runParams, &tissParams);
             }
-            break;
+                break;
             case SIM_TYPE_POLARIZATION_CBS_ELECTRIC_FIELDS:
             {
                 printf("Welcome to polarization simulation based on electric field tracking method ...\n");
@@ -92,13 +97,34 @@ int main(int argc, const char * argv[]) {
                 memset(ResPolElectrciField2D_Phase_GPU2, 0x0, sizeof(float) * runParams.Nx*runParams.Ny);
                 ResPolElectrciField2D_Phase_GPU3 = (float*)malloc(sizeof(float) * runParams.Nx*runParams.Ny);
                 memset(ResPolElectrciField2D_Phase_GPU3, 0x0, sizeof(float) * runParams.Nx*runParams.Ny);
-             }
-            break;
+            }
+                break;
             case SIM_TYPE_RAMAN:
             {
-                printf("Welcome to Raman simulation...\n");
-             }
-            break;
+                NSLog(@"Hello, let's do Raman!");
+                
+                v = ImportBinaryTissueFile(&runParams, &tissParams);
+                
+                PrintRunRamanParameters(&runParams, &tissParams);
+                
+                // Allocate memory for outcomes
+                Rad2D_GPU = malloc(runParams.Nx*runParams.Ny * sizeof(struct RadiationData));
+                if (Rad2D_GPU == NULL) {
+                    perror("Failed to allocate memory for Rd2D_GPU");
+                    exit(EXIT_FAILURE);
+                }
+                memset(Rad2D_GPU, 0x0, runParams.Nx*runParams.Ny * sizeof(struct RadiationData));
+                
+                PhotonData_GPU = malloc(RAMAN_BATCH*N_STEPS*sizeof(struct PhotonData));
+                if (PhotonData_GPU == NULL) {
+                    perror("Failed to allocate memory for PhotonData_GPU");
+                    exit(EXIT_FAILURE);
+                }
+                memset(PhotonData_GPU, 0x0, RAMAN_BATCH*N_STEPS*sizeof(struct PhotonData));
+                
+                NSLog(@"Processing: mu_s = %.4f, zfocus = %.2f, NA = %.2f",tissParams.musv[1], runParams.zf, runParams.NA);
+            }
+                break;
             case SIM_TYPE_MCXYZ:
             case SIM_TYPE_MCXYZ_TT:
             {
@@ -126,22 +152,22 @@ int main(int argc, const char * argv[]) {
                 ResDetPhotons2D_GPU = (int*)malloc(sizeof(int) * runParams.Nx*runParams.Ny);
                 memset(ResDetPhotons2D_GPU, 0x0, sizeof(int) * runParams.Nx*runParams.Ny);
             }
-            break;
+                break;
             default:
             {
                 printf("Unknown or unsupported kernel. quit.\n");
                 exit(1);
             }
-            break;
+                break;
         }
+        
+        /* PERFROM SIMULATIONS */
         
         // Enumerated devices suppoprting Metal Compute
         NSArray *devices = MTLCopyAllDevices();
         for (id device in devices) {
-            NSLog(@"%@", [device name]);
+            NSLog(@"Device in use: %@", [device name]);
         }
-        
-        int NumGPURuns = PHOTON_TOTAL/PHOTON_BATCH;
         
         // id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLDevice> device = devices[0];
@@ -149,61 +175,165 @@ int main(int argc, const char * argv[]) {
         // Create the custom object used to encapsulate the Metal code.
         // Initializes objects to communicate with the GPU.
         MetalMC* mc_sim = [[MetalMC alloc] initWithDevice:device :runParams.mckernelflag];
-        
         // Create buffers to hold data
-        [mc_sim prepareData: &runParams :&tissParams :v ];
+        [mc_sim prepareData: &runParams :&tissParams :v];
         
-        uint64_t start = mach_absolute_time();
-        
-        // perform perallel MC simulations
-        for (int iRunNum = 1; iRunNum <= NumGPURuns; ++iRunNum)
+        switch (runParams.mckernelflag)
         {
-            uint64_t start_kernel = mach_absolute_time();
-            //[mc_sim clearBuffers];
-            
-            // Send number of runs
-            [mc_sim setNumRunsSeed: &iRunNum :&t_seed];
-            
-            // Send a command to the GPU to perform the calculation.
-            [mc_sim sendComputeCommand];
-            
-            uint64_t end_kernel = mach_absolute_time();
-            
-            // Time elapsed in Mach time units.
-            const uint64_t elapsedMTUKernell = end_kernel - start_kernel;
-            
-            // Get information for converting from MTU to nanoseconds
-            mach_timebase_info_data_t infokernel;
-            mach_timebase_info(&infokernel);
-            
-            // Get elapsed time in nanoseconds:
-            const double elapsedNSKernell = (double)elapsedMTUKernell * (double)infokernel.numer / (double)infokernel.denom;
-            const double kernalphotonrate = PHOTON_BATCH/(elapsedNSKernell/NSEC_PER_SEC);
-            const double fractioncompleted = (1.0*iRunNum)/(1.0*NumGPURuns);
-            
-            if (iRunNum % 100 == 0)
-                printf("Compute kernel successfully executed: %f percent completed; total simulated photons: %d out of %d; projected completion in: %f seconds\n",100.0*fractioncompleted, iRunNum*PHOTON_BATCH, PHOTON_TOTAL, (PHOTON_TOTAL - iRunNum*PHOTON_BATCH)/kernalphotonrate);
-            
+            case SIM_TYPE_RAMAN:
+            {
+                char output_photons[100];
+                sprintf(output_photons, "photons_data_mus-%.2f_NA-%.2f_zf-%.2f.csv", tissParams.musv[1], runParams.NA, runParams.zf);
+                FILE* fout_all = fopen(output_photons, "w+");
+                fclose(fout_all);
+                
+                fout_all = fopen(output_photons, "a");
+                fprintf(fout_all, "id,x [mm],y [mm],z [mm],time [ps],weight,type\n");
+
+                // get time data before a run
+                uint64_t start = mach_absolute_time();
+                
+                // Run kernel NumGPURuns times for each batch of photons, and gather results after each run
+                int NumGPURuns = (int)PHOTON_TOTAL/RAMAN_BATCH;
+                for (int iRunNum = 1; iRunNum <= NumGPURuns; ++iRunNum)
+                {
+                    // reset output data for a new batch
+                    //memset(Rad2D_GPU, 0x0, runParams.Nx*runParams.Ny * sizeof(struct RadiationData));
+                    memset(PhotonData_GPU, 0x0, RAMAN_BATCH*N_STEPS*sizeof(struct PhotonData));
+                    
+                    // send to kernel some data
+                    [mc_sim setSRSArray];
+                    [mc_sim setNumRunsSeed: &iRunNum :&t_seed];
+                    
+                    // get time data before a run
+                    uint64_t start_kernel = mach_absolute_time();
+                    
+                    // make GPU work again
+                    [mc_sim sendComputeCommand];
+                    
+                    uint64_t end_kernel = mach_absolute_time();
+                    
+                    // Time elapsed in Mach time units.
+                    const uint64_t elapsedMTUKernell = end_kernel - start_kernel;
+                    
+                    // Get information for converting from MTU to nanoseconds
+                    mach_timebase_info_data_t infokernel;
+                    mach_timebase_info(&infokernel);
+                    
+                    // Get elapsed time in nanoseconds:
+                    const double elapsedNSKernell = (double)elapsedMTUKernell * (double)infokernel.numer / (double)infokernel.denom;
+                    const double kernalphotonrate = RAMAN_BATCH/(elapsedNSKernell/NSEC_PER_SEC);
+                    const double fractioncompleted = (1.0*iRunNum)/(1.0*NumGPURuns);
+                    
+                    if (iRunNum % 10 == 0)
+                        NSLog(@"Compute kernel successfully executed: %f percent completed; total simulated photons: %d out of %d; projected completion in: %f seconds\n",100.0*fractioncompleted, iRunNum*RAMAN_BATCH, PHOTON_TOTAL, (PHOTON_TOTAL - iRunNum*RAMAN_BATCH)/kernalphotonrate);
+                    
+                    // get outcomes from the kernel
+                    [mc_sim getRamanResults :Rad2D_GPU :PhotonData_GPU];
+                    
+                    // write batch data to files
+                    for (int i = 0; i < RAMAN_BATCH; i++) {
+                        for(int j = 0; j < N_STEPS; j++)
+                        {
+                            int idx = (int)(i*N_STEPS + j);
+                            if (PhotonData_GPU[idx].W != 0)
+                            {
+                                fprintf(fout_all, "%i,%.6lf,%.6lf,%.6lf,%f,%f,%i\n",
+                                        PhotonData_GPU[idx].marker,
+                                        PhotonData_GPU[idx].x,
+                                        PhotonData_GPU[idx].y,
+                                        PhotonData_GPU[idx].z,
+                                        PhotonData_GPU[idx].t,
+                                        PhotonData_GPU[idx].W,
+                                        PhotonData_GPU[idx].type);                            }
+                        }
+                    }
+                        
+                }
+                
+                uint64_t end = mach_absolute_time();
+                // Time elapsed in Mach time units.
+                const uint64_t elapsedMTU = end - start;
+                
+                // Get information for converting from MTU to nanoseconds
+                mach_timebase_info_data_t info;
+                mach_timebase_info(&info);
+                
+                // Get elapsed time in nanoseconds:
+                elapsedNS = (double)elapsedMTU * (double)info.numer / (double)info.denom;
+                
+                NSLog(@"Total execution time (GPU):%f [s]\nSimulation rate %d [photons/sec]\n", elapsedNS/NSEC_PER_SEC,(int)(PHOTON_TOTAL/(elapsedNS/NSEC_PER_SEC)));
+                
+                fclose(fout_all);
+                    
+            }
+            break;
+            case SIM_TYPE_MCSUB:
+            case SIM_TYPE_MCXYZ:
+            case SIM_TYPE_POLARIZATION_CBS_ELECTRIC_FIELDS:
+            case SIM_TYPE_MCXYZ_TT:
+            {
+                uint64_t start = mach_absolute_time();
+                
+                // where magic (MC simulations) happens
+                int NumGPURuns = PHOTON_TOTAL/PHOTON_BATCH;
+                for (int iRunNum = 1; iRunNum <= NumGPURuns; ++iRunNum)
+                {
+                    uint64_t start_kernel = mach_absolute_time();
+                    //[mc_sim clearBuffers];
+                    
+                    // Send number of runs
+                    [mc_sim setNumRunsSeed: &iRunNum :&t_seed];
+                    
+                    // Send a command to the GPU to perform the calculation.
+                    [mc_sim sendComputeCommand];
+                    
+                    uint64_t end_kernel = mach_absolute_time();
+                    
+                    // Time elapsed in Mach time units.
+                    const uint64_t elapsedMTUKernell = end_kernel - start_kernel;
+                    
+                    // Get information for converting from MTU to nanoseconds
+                    mach_timebase_info_data_t infokernel;
+                    mach_timebase_info(&infokernel);
+                    
+                    // Get elapsed time in nanoseconds:
+                    const double elapsedNSKernell = (double)elapsedMTUKernell * (double)infokernel.numer / (double)infokernel.denom;
+                    const double kernalphotonrate = PHOTON_BATCH/(elapsedNSKernell/NSEC_PER_SEC);
+                    const double fractioncompleted = (1.0*iRunNum)/(1.0*NumGPURuns);
+                    
+                    if (iRunNum % 100 == 0)
+                        printf("Compute kernel successfully executed: %f percent completed; total simulated photons: %d out of %d; projected completion in: %f seconds\n",100.0*fractioncompleted, iRunNum*PHOTON_BATCH, PHOTON_TOTAL, (PHOTON_TOTAL - iRunNum*PHOTON_BATCH)/kernalphotonrate);
+                    
+                }
+                
+                printf("Getting simulation results\n");
+                // Get simulations results
+                [mc_sim getComputeResults: ResJ_GPU :ResF_GPU :ResF3D_GPU :ResSAE_GPU :ResRd_GPU :ResRd2D_GPU :ResDetPhotons2D_GPU :ResPolElectrciField2D_XX_GPU  :ResPolElectrciField2D_XY_GPU  :ResPolElectrciField2D_YX_GPU  :ResPolElectrciField2D_YY_GPU :ResPolElectrciField2D_Phase_GPU0 :ResPolElectrciField2D_Phase_GPU1 :ResPolElectrciField2D_Phase_GPU2 :ResPolElectrciField2D_Phase_GPU3 :ResPolVsScatt];
+                
+                uint64_t end = mach_absolute_time();
+                // Time elapsed in Mach time units.
+                const uint64_t elapsedMTU = end - start;
+                
+                // Get information for converting from MTU to nanoseconds
+                mach_timebase_info_data_t info;
+                mach_timebase_info(&info);
+                
+                // Get elapsed time in nanoseconds:
+                elapsedNS = (double)elapsedMTU * (double)info.numer / (double)info.denom;
+                
+                printf("Total execution time (GPU):%f\nSimulation rate %d [photons/sec]\n", elapsedNS/NSEC_PER_SEC,(int)(PHOTON_TOTAL/(elapsedNS/NSEC_PER_SEC)));
+            }
+            break;
+            default:
+            {
+                printf("Unknown or unsupported kernel. quit.\n");
+                exit(1);
+            }
+                break;
         }
-        
-        printf("Getting simulation results\n");
-        // Get simulations results
-        [mc_sim getComputeResults: ResJ_GPU :ResF_GPU :ResF3D_GPU :ResSAE_GPU :ResRd_GPU :ResRd2D_GPU :ResDetPhotons2D_GPU :ResPolElectrciField2D_XX_GPU  :ResPolElectrciField2D_XY_GPU  :ResPolElectrciField2D_YX_GPU  :ResPolElectrciField2D_YY_GPU :ResPolElectrciField2D_Phase_GPU0 :ResPolElectrciField2D_Phase_GPU1 :ResPolElectrciField2D_Phase_GPU2 :ResPolElectrciField2D_Phase_GPU3 :ResPolVsScatt];
-        
-        uint64_t end = mach_absolute_time();
-        
-        // Time elapsed in Mach time units.
-        const uint64_t elapsedMTU = end - start;
-        
-        // Get information for converting from MTU to nanoseconds
-        mach_timebase_info_data_t info;
-        mach_timebase_info(&info);
-        
-        // Get elapsed time in nanoseconds:
-        const double elapsedNS = (double)elapsedMTU * (double)info.numer / (double)info.denom;
-        
-        printf("Total execution time (GPU):%f\nSimulation rate %d [photons/sec]\n", elapsedNS/NSEC_PER_SEC,(int)(PHOTON_TOTAL/(elapsedNS/NSEC_PER_SEC)));
-        
+            
+        /* SAVE SIMULATION DATA */
         switch (runParams.mckernelflag)
         {
             case SIM_TYPE_MCSUB:
@@ -216,12 +346,12 @@ int main(int argc, const char * argv[]) {
                 float n2_mcsub = runParams.n2;
                 
                 /*float radius_mcsub = runParams.radius;
-                float waist_mcsub = runParams.waist;
-                float zs_mcsub = runParams.zs;
-                float xs_mcsub = runParams.xs;
-                float ys_mcsub = runParams.ys;
-              
-                int mcflag_mcsub = runParams.mcflag;*/
+                 float waist_mcsub = runParams.waist;
+                 float zs_mcsub = runParams.zs;
+                 float xs_mcsub = runParams.xs;
+                 float ys_mcsub = runParams.ys;
+                 
+                 int mcflag_mcsub = runParams.mcflag;*/
                 
                 for (int ir=1; ir<=BINS; ir++)
                 {
@@ -262,7 +392,7 @@ int main(int argc, const char * argv[]) {
                          mcflag_mcsub, radius_mcsub, waist_mcsub, xs_mcsub, ys_mcsub, zs_mcsub,
                          BINS, BINS, dr_mcsub, dz_mcsub, PHOTON_TOTAL);
             }
-            break;
+                break;
             case SIM_TYPE_POLARIZATION_CBS_ELECTRIC_FIELDS:
             {
                 /**** SAVE
@@ -388,7 +518,7 @@ int main(int argc, const char * argv[]) {
                         float Val_phase1 = ResPolElectrciField2D_Phase_GPU1[index];
                         float Val_phase2 = ResPolElectrciField2D_Phase_GPU2[index];
                         float Val_phase3 = ResPolElectrciField2D_Phase_GPU3[index];
-
+                        
                         if (!isnan(Val_xx) && !isinf(Val_xx) && !isnan(Val_xy) && !isinf(Val_xy) && !isnan(Val_yx) && !isinf(Val_yx) && !isnan(Val_yy) && !isinf(Val_yy) && !isnan(Val_phase0) && !isinf(Val_phase0) && !isnan(Val_phase1) && !isinf(Val_phase1) && !isnan(Val_phase2) && !isinf(Val_phase2) && !isnan(Val_phase3) && !isinf(Val_phase3))
                         {
                             fprintf(fid_xx, "\t %1.6e", Val_xx);
@@ -457,7 +587,7 @@ int main(int argc, const char * argv[]) {
                 strcat(filename_polscatt, "_PolScatt.dat");
                 FILE* fid_polscatt = fopen(filename_polscatt, "wb");   /* 3D voxel output */
                 printf("saving %s\n",filename_polscatt);
-
+                
                 for (int iPos = 0; iPos <= MAX_SCATT_POL; ++iPos)
                 {
                     fprintf(fid_polscatt, "%d %lg %lg %lg %lg \n", iPos, ResPolVsScatt[iPos], ResPolVsScatt[MAX_SCATT_POL + iPos], ResPolVsScatt[2*MAX_SCATT_POL + iPos], ResPolVsScatt[3*MAX_SCATT_POL + iPos]);
@@ -465,12 +595,37 @@ int main(int argc, const char * argv[]) {
                 fclose(fid_polscatt);
                 
             }
-            break;
+                break;
             case SIM_TYPE_RAMAN:
             {
+                // open output files
+                char detected_photons[100];
+                sprintf(detected_photons, "rd_data_mus-%.2f_NA-%.2f_zf-%.2f.csv", tissParams.musv[1], runParams.NA, runParams.zf);
+                FILE* fout_det = fopen(detected_photons, "w+");
+                fprintf(fout_det, "Laser RD,Raman RD,SRS RD\n"); // Raman RD does count SRS
+                
+                char output[100];
+                sprintf(output, "metrics_mus-%.2f_NA-%.2f_zf-%.2f.csv",tissParams.musv[1], runParams.NA, runParams.zf);
+                FILE* foutput = fopen(output, "w+");
+                fprintf(foutput, "N total,N batch,sim time (s),photon rate (photons/s)\n");
+                
+                for (int i = 0; i < runParams.Nx*runParams.Ny; i++)
+                    fprintf(fout_det, "%f,%f,%f\n",
+                            Rad2D_GPU[i].laserRd,
+                            Rad2D_GPU[i].ramanRd,
+                            Rad2D_GPU[i].srsRd);
+                               
+                if (elapsedNS!=0)
+                    fprintf(foutput, "%i,%i,%.6f,%.2d\n", PHOTON_TOTAL, RAMAN_BATCH, elapsedNS/NSEC_PER_SEC,(int)(PHOTON_TOTAL/(elapsedNS/NSEC_PER_SEC)));
+
+                // Free memory and close files
+                free(Rad2D_GPU);
+                free(PhotonData_GPU);
+                fclose(fout_det);
+                fclose(foutput);
 
             }
-            break;
+                break;
             case SIM_TYPE_MCXYZ:
             case SIM_TYPE_MCXYZ_TT:
             {
@@ -564,13 +719,13 @@ int main(int argc, const char * argv[]) {
                 fclose(fid_Ph2d);
                 
             }
-            break;
+                break;
             default:
             {
                 printf("Unknown or unsupported kernel. quit.\n");
                 exit(1);
             }
-            break;
+                break;
         }
         
         // Clenup

@@ -28,6 +28,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) sendComputeCommand;
 - (void) getComputeResults: (float*) resJ :(float*) resF :(float*) resF3D :(float*) resSAE :(float*) Rd :(float*) Rd2D :(int*) ResDetPhotons2D0 :(float*) RdPolXX2D :(float*) RdPolXY2D :(float*) RdPolYX2D :(float*) RdPolYY2D :(float*) RdPolPhase2D0 :(float*) ResPolPhase2D1 :(float*) ResPolPhase2D2 :(float*) ResPolPhase2D3 :(float*) PolVsScatt;
 - (void) setNumRunsSeed: (int*) NumRuns :(float*) TimeSeed;
+- (void) setSRSArray;
+- (void) getRamanResults:(struct RadiationData*)RadiationDataResults :(struct PhotonData*) PhotonDataResults;
 @end
 
 NS_ASSUME_NONNULL_END
