@@ -71,7 +71,7 @@ _MCI_KEYS_ORDER: Tuple[str, ...] = (
 
 def set_paper_style(
     dpi: int = 300,
-    font_size: int = 9,
+    font_size: int = 12,
     context: str = "paper",
     style: str = "ticks",
 ) -> None:
@@ -101,7 +101,7 @@ def set_paper_style(
             "xtick.labelsize": font_size - 1,
             "ytick.labelsize": font_size - 1,
             # Axes
-            "axes.linewidth": 0.8,
+            "axes.linewidth": 1.5,
             "xtick.direction": "out",
             "ytick.direction": "out",
             "xtick.major.width": 0.8,
@@ -491,9 +491,9 @@ def load_rd_data(
     Returns
     -------
     dict with keys:
-        ``laser``  (Nx × Ny ndarray),
-        ``raman``  (Nx × Ny ndarray),
-        ``srs``    (Nx × Ny ndarray),
+        ``laser``  (Nx x Ny ndarray),
+        ``raman``  (Nx x Ny ndarray),
+        ``srs``    (Nx x Ny ndarray),
         ``x``      (Nx  1-D coordinate array, mm, centred at 0),
         ``y``      (Ny  1-D coordinate array, mm, centred at 0),
         ``extent`` ([x_min, x_max, y_min, y_max]  for imshow),
