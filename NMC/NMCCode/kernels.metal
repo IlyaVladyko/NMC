@@ -1516,7 +1516,6 @@ kernel void MCRamanKernel(
                  float rsp = Fresnel::RFresnel(n, 1.0, fabs(photon.uz), &uz_temp);
 //                 photon.uz = uz_temp;
 
-//                     if (photon.type == 1) Rd2D[i2d] += rsp;
                  if (rsp < MC_ONE)
                  {
                      if (runParamsG.det_state == 1)
