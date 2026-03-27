@@ -182,13 +182,13 @@ int main(int argc, const char * argv[]) {
         {
             case SIM_TYPE_RAMAN:
             {
-                char output_photons[100];
-                sprintf(output_photons, "photons_data_mus-%.2f_NA-%.2f_zf-%.2f.csv", tissParams.musv[1], runParams.NA, runParams.zf);
-                FILE* fout_all = fopen(output_photons, "w+");
-                fclose(fout_all);
-                
-                fout_all = fopen(output_photons, "a");
-                fprintf(fout_all, "id,x [mm],y [mm],z [mm],time [ps],weight,type\n");
+//                char output_photons[100];
+//                sprintf(output_photons, "photons_data_mus-%.2f_NA-%.2f_zf-%.2f.csv", tissParams.musv[1], runParams.NA, runParams.zf);
+//                FILE* fout_all = fopen(output_photons, "w+");
+//                fclose(fout_all);
+//                
+//                fout_all = fopen(output_photons, "a");
+//                fprintf(fout_all, "id,x [mm],y [mm],z [mm],time [ps],weight,type\n");
 
                 // get time data before a run
                 uint64_t start = mach_absolute_time();
@@ -232,22 +232,22 @@ int main(int argc, const char * argv[]) {
                     [mc_sim getRamanResults :Rad2D_GPU :PhotonData_GPU];
                     
                     // write batch data to files
-                    for (int i = 0; i < RAMAN_BATCH; i++) {
-                        for(int j = 0; j < N_STEPS; j++)
-                        {
-                            int idx = (int)(i*N_STEPS + j);
-                            if (PhotonData_GPU[idx].W != 0)
-                            {
-                                fprintf(fout_all, "%i,%.6lf,%.6lf,%.6lf,%f,%f,%i\n",
-                                        PhotonData_GPU[idx].marker,
-                                        PhotonData_GPU[idx].x,
-                                        PhotonData_GPU[idx].y,
-                                        PhotonData_GPU[idx].z,
-                                        PhotonData_GPU[idx].t,
-                                        PhotonData_GPU[idx].W,
-                                        PhotonData_GPU[idx].type);                            }
-                        }
-                    }
+//                    for (int i = 0; i < RAMAN_BATCH; i++) {
+//                        for(int j = 0; j < N_STEPS; j++)
+//                        {
+//                            int idx = (int)(i*N_STEPS + j);
+//                            if (PhotonData_GPU[idx].W != 0)
+//                            {
+//                                fprintf(fout_all, "%i,%.6lf,%.6lf,%.6lf,%f,%f,%i\n",
+//                                        PhotonData_GPU[idx].marker,
+//                                        PhotonData_GPU[idx].x,
+//                                        PhotonData_GPU[idx].y,
+//                                        PhotonData_GPU[idx].z,
+//                                        PhotonData_GPU[idx].t,
+//                                        PhotonData_GPU[idx].W,
+//                                        PhotonData_GPU[idx].type);                            }
+//                        }
+//                    }
                         
                 }
                 
@@ -264,7 +264,7 @@ int main(int argc, const char * argv[]) {
                 
                 NSLog(@"Total execution time (GPU):%f [s]\nSimulation rate %d [photons/sec]\n", elapsedNS/NSEC_PER_SEC,(int)(PHOTON_TOTAL/(elapsedNS/NSEC_PER_SEC)));
                 
-                fclose(fout_all);
+//                fclose(fout_all);
                     
             }
             break;

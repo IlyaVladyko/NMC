@@ -1263,8 +1263,8 @@ kernel void MCRamanKernel(
     photon.uy        = -(photon.y - yfocus)/temp;
     photon.uz        = sqrt(1.0 - photon.ux*photon.ux - photon.uy*photon.uy);
      
-    photon.type = 3;
-    //photon.type = (index % 100 == 0) ? 4 : 3;
+//    photon.type = 3;
+    photon.type = (index % 2 == 0) ? 4 : 3;
 
     photon.W = 1.0;
     //bool isInRegion = photon.z >= 0.0f && photon.z <= width;
@@ -1442,7 +1442,7 @@ kernel void MCRamanKernel(
 
                  //float rsp = Fresnel::RFresnel(n, 1.0, fabs(uz_old), &photon.uz); //photon.uz);
                  float uz_temp = MC_ZERO;
-                 float rsp = Fresnel::RFresnel(n, 1.0, fabs(photon.uz), &uz_temp);
+                 float rsp = 0.0; //Fresnel::RFresnel(n, 1.0, fabs(photon.uz), &uz_temp);
                  //photon.uz = uz_temp;
  
                  if (rsp < MC_ONE)
@@ -1513,7 +1513,7 @@ kernel void MCRamanKernel(
     
                  //float rsp = Fresnel::RFresnel(n, 1.0, fabs(uz_old), &photon.uz); //photon.uz);
                  float uz_temp = MC_ZERO;
-                 float rsp = Fresnel::RFresnel(n, 1.0, fabs(photon.uz), &uz_temp);
+                 float rsp = 0.0; //Fresnel::RFresnel(n, 1.0, fabs(photon.uz), &uz_temp);
 //                 photon.uz = uz_temp;
 
                  if (rsp < MC_ONE)
