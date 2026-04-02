@@ -46,9 +46,6 @@ int main(int argc, const char * argv[]) {
         
         /* READ INPUT PARAMS OF THE SIMULATION */
         ReadRunParams(argv, &runParams, &tissParams);
-//        NSLog(@"det_state = %d", runParams.det_state);
-//        PrintRunRamanParameters(&runParams, &tissParams);
-//        return 0;
 
         /* ALLOCATE MEMORY */
         switch (runParams.mckernelflag)
@@ -231,7 +228,7 @@ int main(int argc, const char * argv[]) {
                     // get outcomes from the kernel
                     [mc_sim getRamanResults :Rad2D_GPU :PhotonData_GPU];
                     
-                    // write batch data to files
+//                     write batch data to files
 //                    for (int i = 0; i < RAMAN_BATCH; i++) {
 //                        for(int j = 0; j < N_STEPS; j++)
 //                        {
@@ -248,7 +245,7 @@ int main(int argc, const char * argv[]) {
 //                                        PhotonData_GPU[idx].type);                            }
 //                        }
 //                    }
-                        
+//                        
                 }
                 
                 uint64_t end = mach_absolute_time();

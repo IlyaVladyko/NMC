@@ -60,7 +60,7 @@
 #define Ntiss       19          /* Number of tissue types. */
 #define STRLEN      32          /* String length. */
 #define ls          10E-8       /* Moving photon a little bit off the voxel face */
-#define PI          3.1415926
+#define PI          3.141592653
 #define LIGHTSPEED  2.997925E11 /* in vacuo speed of light [mm/s] */
 #define PHOTON_MAX_TIME 5E-5    /* 50 picoseconds */
 //#define PHOTON_MAX_TIME 1E-9 /* 1 nanosecond */
@@ -89,8 +89,7 @@
 // Raman
 #define YES_RAMAN                1
 #define NO_RAMAN                 0
-#define PI_RAMAN               3.1415926535897932384626433832795
-#define C_RAMAN                .299792458
+#define LIGHTSPEED_MM_PS         .299792458    // mm/ps
 
 
 #ifndef SEED_FROM_CLOCK
@@ -112,6 +111,11 @@
 #ifndef ABSORPTION
 #define ABSORPTION            YES
 #endif
+
+#ifndef DWIVEDI_SAMPLING
+#define DWIVEDI_SAMPLING            YES
+#endif
+
 
 #ifndef RAMAN
 #define RAMAN                YES
@@ -203,8 +207,9 @@ struct RunParams
 
     /* mcxyz bin variables */
     float    dx, dy, dz;     /* bin size [cm] */
-    int      Nx, Ny, Nz, Nt; /* # of bins */
-    float    xs, ys, zs;        /* launch position */
+    int      Nx, Ny, Nz;     /* # of bins */
+    int      Nt;             /* # of tissue types */
+    float    xs, ys, zs;     /* launch position */
 
     /* time */
     float    time_min;               // Requested time duration of computation.
@@ -227,13 +232,16 @@ struct RunParams
 struct TissueParams
 {
     /* tissue parameters */
+    float     n;       // index of refraction
     float     muav[Ntiss];            // muav[0:Ntiss-1], absorption coefficient of ith tissue type
     float     musv[Ntiss];            // scattering coeff.
     float     gv[Ntiss];              // anisotropy of scattering
     float     gf[Ntiss],af[Ntiss],gb[Ntiss],ab[Ntiss],CC[Ntiss]; // two term phase scattering function paprameters
     
     /* raman tissue parameters */
-    float n,g,r_s,r_a;
+    float     muav_r[Ntiss];            // muav[0:Ntiss-1], absorption coefficient of ith tissue type
+    float     musv_r[Ntiss];            // scattering coeff.
+    float     gv_r[Ntiss];              // anisotropy of scattering
     float raman_prob,stim_raman_prob,interaction_distance;
 };
 

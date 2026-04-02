@@ -411,23 +411,6 @@ public:
     float   exit_time;
 };
 
-typedef struct ramanPhoton
-{
-public:
-    thread ramanPhoton()
-    {
-        x = MC_ZERO; y = MC_ZERO; z = MC_ZERO;
-        ux = MC_ZERO; uy = MC_ZERO; uz = MC_ZERO;
-        creation_point = (MC_ZERO,MC_ZERO,MC_ZERO); ph_time = MC_ZERO;
-    };
-    float   x, y, z;        /* photon position */
-    float   ux, uy, uz;     /* photon trajectory as cosines */
-    int     photon_type;    /* flag: 0 = source, 1 = raman, 2 = srs */
-    
-    float3  creation_point;
-    float   ph_time;
-} ramanPhoton;
-
 inline void updatePhotonPosition(thread Photon &photon, float vdt, float3 oldPos) {
     photon.x = photon.ux * vdt + oldPos.x;
     photon.y = photon.uy * vdt + oldPos.y;
@@ -470,6 +453,42 @@ inline void updatePhotonDirection(thread Photon &photon, float g, float3 oldDir,
         photon.uy = s_theta/temp*( -oldDir.x*s_phi - oldDir.z*oldDir.y*c_phi ) + oldDir.y*c_theta;
         photon.uz = s_theta*temp*c_phi + oldDir.z*c_theta;
     }
+}
+
+inline void samplingStep(float  mut, float mua, float mus, thread Photon &photon) {
+
+#if (DWIVEDI_SAMPLING == YES)
+    // ── Dwivedi / Carter-Cashwell biased sampling ──────────────────────────
+    //
+    //  Bias rate:   α = mua + β·mus   < mut   (always, for β ∈ (0,1))
+    //
+    //  Biased step: vdt = -ln(ξ) / α
+    //
+    //  IS correction (unbiases the estimator):
+    //      weight_corr = p_analog(vdt) / p_biased(vdt)
+    //                  = [mut · exp(-mut·vdt)] / [α · exp(-α·vdt)]
+    //                  = (mut/α) · exp(-(mut-α)·vdt)
+    //
+    //  In high-albedo tissue (mus >> mua) and β = 0.5:
+    //      α ≈ 0.5·mus  <<  mut ≈ mus
+    //  so the biased PDF generates substantially longer steps, driving
+    //  photons deeper and reducing the number of walks needed for a given
+    //  depth penetration (variance reduction vs. standard sampling).
+    // ──────────────────────────────────────────────────────────────────────
+
+    float alpha = mua + 0.5 * mus;   // biased rate [mm⁻¹]
+    photon.s          = photon.sleft / alpha;
+
+#else
+    // ── Standard analog Beer-Lambert sampling ─────────────────────────────
+    //  vdt = -ln(ξ) / mut
+    //  This is the textbook result (Wang 1995, Eq. 3).
+    //  weight_corr = 1 (no IS adjustment needed).
+    // ──────────────────────────────────────────────────────────────────────
+
+    photon.s          = photon.sleft / mut;
+
+#endif
 }
 
 

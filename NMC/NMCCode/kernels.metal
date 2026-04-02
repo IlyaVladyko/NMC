@@ -1,6 +1,3 @@
-/*---------------------------------------------------------------------------------------------------------------------*/
-//  This file is a part of NMC: a unified, power-efficient platform platform for photon transport simulations
-//  accelerated by Metal/GPU computing and Machine Learning
 //  created by Alexander Doronin
 //  Source code:    https://github.com/aledoronin
 //  Web:            http://www.lighttransport.net/
@@ -1213,12 +1210,12 @@ kernel void MCRamanKernel(
     float width =                       runParamsG.width;    // mm
     float n =                           tissParamsG.n;       // index_of_refraction [-]
     float g =                           tissParamsG.gv[1];   // anisotropy factor [-]
-    float r_s =                         1/tissParamsG.musv[1];   // scattering mean free path [mm]
-    float r_a =                         1/tissParamsG.muav[1];   // absorption mean free path [mm]
+    float mus =                         tissParamsG.musv[1];   // scattering coefficient [1/mm]
+    float mua =                         tissParamsG.muav[1];   // absorption coefficient [1/mm]
     float step_size =                   runParamsG.step_size;  // mm
     float raman_prob =                  tissParamsG.raman_prob;
     float stim_raman_prob =             tissParamsG.stim_raman_prob;
-    float interaction_distance =        tissParamsG.interaction_distance;   // mm wow!
+    float interaction_distance =        tissParamsG.interaction_distance;   // mm
     float laser_beam_radius =           runParamsG.laser_beam_radius;   // mm
     float laser_beam_pulse_width =      runParamsG.laser_beam_pulse_width;
     float laser_beam_pulse_delay =      runParamsG.laser_beam_pulse_delay;   // ps
@@ -1228,7 +1225,10 @@ kernel void MCRamanKernel(
     float dz =                          width/runParamsG.Nz;
     
     float stim_prob =                   stim_raman_prob*step_size;
-    int N_steps =                       N_STEPS; //(int)( ceil( C_RAMAN*time_simulated/(index_of_refraction)/r_s)); //step_size
+    int N_steps =                       N_STEPS; //(int)( ceil( C_RAMAN*time_simulated/(index_of_refraction)*mus)); //step_size
+    
+    // Derived optical quantities used every step
+    float mut = mus + mua;    // laser-wavelength total extinction [mm⁻¹]
     
     // Initialisation Laser Photons
     /*
@@ -1247,10 +1247,10 @@ kernel void MCRamanKernel(
     photon.x = R * cos(theta);
     photon.y = R * sin(theta);
 
-    sigma = 0.42466090014400953*laser_beam_pulse_width*C_RAMAN;    // 1/( 2*sqrt( 2*ln(2) ) )
+    sigma = 0.42466090014400953*laser_beam_pulse_width*LIGHTSPEED_MM_PS;    // 1/( 2*sqrt( 2*ln(2) ) )
     R = sqrt( 2.0*sigma*sigma*log( 1.0/(1.0-RandomNum) ) );
     theta = 2.0 * PI * RandomNum;
-    photon.z = R*sin( theta ) - laser_beam_pulse_delay*C_RAMAN;
+    photon.z = R*sin( theta ) - laser_beam_pulse_delay*LIGHTSPEED_MM_PS;
 
     //photon.ux = 0.0; photon.uy = 0.0; photon.uz = 1.0;
     // set trajectory toward focus
@@ -1263,19 +1263,14 @@ kernel void MCRamanKernel(
     photon.uy        = -(photon.y - yfocus)/temp;
     photon.uz        = sqrt(1.0 - photon.ux*photon.ux - photon.uy*photon.uy);
      
-//    photon.type = 3;
+//    photon.type = 4;
     photon.type = (index % 2 == 0) ? 4 : 3;
 
     photon.W = 1.0;
     //bool isInRegion = photon.z >= 0.0f && photon.z <= width;
 
     // Initialisation Simulation Variables
-    float P_Elastic = 1.0 - exp(-step_size/r_s);
-    float P_Raman = 1.0 - exp(-raman_prob*step_size);
-    float P_Abs = 1.0 - exp(-step_size/r_a);
-    //float P_SRS = 1.0 - exp(-stim_raman_prob*step_size);
-
-    //float path = 0.0;
+    float path = 0.0; float t = 0.0;
     float ux_old = photon.ux;
     float uy_old = photon.uy;
     float uz_old = photon.uz;
@@ -1300,37 +1295,45 @@ kernel void MCRamanKernel(
     // MAIN PART
     for(int iPosRuns = 0; iPosRuns < N_steps; iPosRuns++ )
     {
-
-        float vdt; //temp,  phi, theta, c_theta, s_theta, c_phi, s_phi, xi, prob, x_end, y_end
-        float t =  iPosRuns*n*step_size/C_RAMAN;
-
+        if (photon.type == 0){
+            // write a photon terminated for whatever reason
+            int render_ID = (int)(index*N_steps + iPosRuns);
+            Output[render_ID].marker = index + (numRuns - 1) * RAMAN_BATCH;
+            Output[render_ID].t = t;
+            Output[render_ID].x = photon.x;
+            Output[render_ID].y = photon.y;
+            Output[render_ID].z = photon.z;
+            Output[render_ID].type = photon.type;
+            Output[render_ID].W = photon.W;
+            return;
+        }
+        
+        float step;
+        photon.sleft = -log(RandomNum);
+        // photon.s    = photon.sleft*size_step; // /mut;
+        samplingStep(mut, mua, mus, photon); // smart step-size sampling
+      
+        // recalculate probabilities
+        float P_Elastic = 1.0 - exp(-photon.s*mus);
+        float P_Raman = 1.0 - exp(-step_size*raman_prob);
+        float P_Abs = 1.0 - exp(-photon.s*mua);
+        //float P_SRS = 1.0 - exp(-stim_raman_prob*step_size);
+        
          // ABSORPTION
         #if(ABSORPTION == YES)
          if((photon_type_old == 1 || photon_type_old == 2) && RandomNum < P_Abs)
          {
              photon.type = 0;
-             
-             // write when absorbed for rendering purposes
-             int render_ID = (int)(index*N_steps + iPosRuns);
-             Output[render_ID].marker = index + (numRuns - 1) * RAMAN_BATCH;
-             Output[render_ID].t = t;
-             Output[render_ID].x = photon.x;
-             Output[render_ID].y = photon.y;
-             Output[render_ID].z = photon.z;
-             Output[render_ID].type = photon.type;
-             Output[render_ID].W = photon.W;
-             
-             return;
          }
         #endif
          
          // PROPAGATION
-        if (photon.type == 0) return;
-
          switch (photon_type_old) {
              case 1:  // Laser photon in region
-                 vdt = -log(RandomNum)*step_size;     //step_size;
-
+                 step = photon.s;
+                 path += step;
+                 t =  n*path/LIGHTSPEED_MM_PS;
+                 
          #if(RAMAN == YES)
                  if (RandomNum < P_Raman) {
                      photon.type = 2;
@@ -1379,42 +1382,68 @@ kernel void MCRamanKernel(
                  }
          #endif
          #endif
-
+    
          #if(ELASTIC == YES)
                  if (photon.type != 2 && RandomNum < P_Elastic) {
                      updatePhotonDirection(photon, g, {ux_old, uy_old, uz_old}, rng_gen);
                  }
          #endif
-                 updatePhotonPosition(photon, vdt, {x_old, y_old, z_old});
+                 updatePhotonPosition(photon, step, {x_old, y_old, z_old});
                  
-                 photon.absorb = photon.W * (1.0 - exp(-vdt/r_a));
+                 photon.absorb = photon.W * (1.0 - exp(-step*mua));
                  photon.W -= photon.absorb;
+                 
+                 // update optical properties if Raman photon generated for next propagation steps
+                 if (photon.type == 2) {
+                     g = tissParamsG.gv_r[1];   // anisotropy factor at Raman shift [-]
+                     mus = tissParamsG.musv_r[1];   // scattering mean free path at Raman shift [mm-1]
+                     mua = tissParamsG.muav_r[1];   // absorption mean free path at Raman shift [mm-1]
+                     mut = mus + mua;
+                 }
                  
                  break;
              case 2:  // Raman photon in region
-                 vdt =  -log(RandomNum)*step_size;     //step_size;
+                 step = photon.s;
+                 path += step;
+                 t =  n*path/LIGHTSPEED_MM_PS;
 
          #if(ELASTIC == YES)
                  if (RandomNum < P_Elastic) {
                      updatePhotonDirection(photon, g, {ux_old, uy_old, uz_old}, rng_gen);
                  }
          #endif
-                 updatePhotonPosition(photon, vdt, {x_old, y_old, z_old});
+                 updatePhotonPosition(photon, step, {x_old, y_old, z_old});
                  
-                 photon.absorb = photon.W * (1.0 - exp(-vdt/r_a));
+                 photon.absorb = photon.W * (1.0 - exp(-step*mua));
                  photon.W -= photon.absorb;
                  
                  break;
              case 3:  // Laser photon before entering
              case 4:  // Probe photon before entering
-                 vdt = n * step_size;
-                 updatePhotonPosition(photon, vdt, {x_old, y_old, z_old});
-
-                 if (photon.z >= 0.0) {
-                     vdt = -z_old / uz_old + step_size + z_old / (uz_old * n); // ?
+                 
+                 // Outside the scattering medium: use deterministic step_size
+                 step = step_size*10;
+                 updatePhotonPosition(photon, step, {x_old, y_old, z_old});
+                 path += step;
+                 t =  n*path/LIGHTSPEED_MM_PS;
+                 
+                 if (z_old < 0.0 && photon.z >= 0.0) {
+                     path -= step;
+                     step = -z_old / photon.uz;
+                     updatePhotonPosition(photon, step, {x_old, y_old, z_old});
+                     path += step;
+                     t =  n*path/LIGHTSPEED_MM_PS;
+                     
                      photon.type = (photon_type_old == 3) ? 1 : 2;
-                     updatePhotonPosition(photon, vdt, {x_old, y_old, z_old});
                      photon.entry_time = t;
+                     
+                     // For type 2 / probe photons, optical props are Raman-shifted.
+                     if (photon.type == 2) {
+                         g = tissParamsG.gv_r[1];   // anisotropy factor at Raman shift [-]
+                         mus = tissParamsG.musv_r[1];   // scattering mean free path at Raman shift [mm-1]
+                         mua = tissParamsG.muav_r[1];   // absorption mean free path at Raman shift [mm-1]
+                         mut = mus + mua;
+                     }
                      
                      // write when entering region for rendering purposes
                      int render_ID = (int)(index*N_steps + iPosRuns);
@@ -1425,20 +1454,21 @@ kernel void MCRamanKernel(
                      Output[render_ID].z = photon.z;
                      Output[render_ID].type = photon.type;
                      Output[render_ID].W = photon.W;
+                     
                  }
-
                  break;
          }
-         
+        
+
          // BOUNDARIES CHECK
          if (photon.type == 1 || photon.type == 2) // Make sure photon is from region
          {
-             if (photon.z <= 0) {
+             if (photon.z < 0 && photon.entry_time != t) {
 
                  //float boundary_z = (photon.z >= width) ? width : 0.0;
                  float boundary_z = (photon.z <= 0.0) ? 0.0 : width;
-                 vdt = (boundary_z - z_old) / photon.uz;
-                 updatePhotonPosition(photon, vdt, {x_old, y_old, z_old});
+                 step = (boundary_z - z_old) / photon.uz;
+                 updatePhotonPosition(photon, step, {x_old, y_old, z_old});
 
                  //float rsp = Fresnel::RFresnel(n, 1.0, fabs(uz_old), &photon.uz); //photon.uz);
                  float uz_temp = MC_ZERO;
@@ -1474,11 +1504,6 @@ kernel void MCRamanKernel(
                                                                (device atomic_float*)&Rd2D[i2d].srsRd,
                                                                photon.W * (MC_ONE - rsp),memory_order_relaxed);
                                      
-        //                             if (photon.type == 1) Rd2D[i2d].laserRd += photon.W * (MC_ONE - rsp);
-        //                             if (photon.type == 2) Rd2D[i2d].ramanRd += photon.W * (MC_ONE - rsp);
-        //                             if (photon.type == 2 & srs_flag == 1) Rd2D[i2d].srsRd += photon.W * (MC_ONE - rsp);
-        //                             photon.uz = -photon.uz;
-                                 photon.W = photon.W * rsp;
                              }
                          }
                      }
@@ -1486,15 +1511,6 @@ kernel void MCRamanKernel(
                      photon.type = 0;
                      photon.exit_time = t;
                      
-                     // write when exiting region for rendering purposes
-                     int render_ID = (int)(index*N_steps + iPosRuns);
-                     Output[render_ID].marker = index + (numRuns - 1) * RAMAN_BATCH;
-                     Output[render_ID].t = t;
-                     Output[render_ID].x = photon.x;
-                     Output[render_ID].y = photon.y;
-                     Output[render_ID].z = photon.z;
-                     Output[render_ID].type = photon.type;
-                     Output[render_ID].W = photon.W;
                  }
                  else // internally reflect
                  {
@@ -1505,11 +1521,10 @@ kernel void MCRamanKernel(
 
              if (photon.z >= width) {
                  
-                 
      #if (DETECTFORWARD == YES)
                  float boundary_z = (photon.z >= width) ? width : 0.0;
-                 vdt = (boundary_z - z_old) / photon.uz;
-                 updatePhotonPosition(photon, vdt, {x_old, y_old, z_old});
+                 step = (boundary_z - z_old) / photon.uz;
+                 updatePhotonPosition(photon, step, {x_old, y_old, z_old});
     
                  //float rsp = Fresnel::RFresnel(n, 1.0, fabs(uz_old), &photon.uz); //photon.uz);
                  float uz_temp = MC_ZERO;
@@ -1545,12 +1560,6 @@ kernel void MCRamanKernel(
                                      atomic_fetch_add_explicit(
                                                                (device atomic_float*)&Rd2D[i2d].srsRd,
                                                                photon.W * (MC_ONE - rsp),memory_order_relaxed);
-    //                             Rd2D[i2d] += 1.0;
-    //                             if (photon.type == 1) Rd2D[i2d].laserRd += photon.W * (MC_ONE - rsp);
-    //                             if (photon.type == 2) Rd2D[i2d].ramanRd += photon.W * (MC_ONE - rsp);
-    //                             if (photon.type == 2 & srs_flag == 1) Rd2D[i2d].srsRd += photon.W * (MC_ONE - rsp);
-    //                             photon.uz = -photon.uz;
-                                 photon.W = photon.W * rsp;
                              }
                          }
                      }
@@ -1558,15 +1567,6 @@ kernel void MCRamanKernel(
                      photon.type = 0;
                      photon.exit_time = t;
                      
-                     // write when exiting region for rendering purposes
-                     int render_ID = (int)(index*N_steps + iPosRuns);
-                     Output[render_ID].marker = index + (numRuns - 1) * RAMAN_BATCH;
-                     Output[render_ID].t = t;
-                     Output[render_ID].x = photon.x;
-                     Output[render_ID].y = photon.y;
-                     Output[render_ID].z = photon.z;
-                     Output[render_ID].type = photon.type;
-                     Output[render_ID].W = photon.W;
                  }
                  else // internally reflect
                  {
@@ -1586,16 +1586,13 @@ kernel void MCRamanKernel(
          }
          
          // SYNCHRONISE ALL THREADS, UPDATE VARIABLES
-         x_old = photon.x;
-         y_old = photon.y;
-         z_old = photon.z;
-         ux_old = photon.ux;
-         uy_old = photon.uy;
-         uz_old = photon.uz;
+         x_old = photon.x; y_old = photon.y; z_old = photon.z;
+         ux_old = photon.ux; uy_old = photon.uy; uz_old = photon.uz;
          photon_type_old = photon.type;
 
          data_ID = 3*(index*N_steps + iPosRuns);
          data_ID_type = index*N_steps + iPosRuns;
+        
          atomic_store_explicit(&PhotonCoordinates[data_ID + 0], photon.x, memory_order_relaxed);
          atomic_store_explicit(&PhotonCoordinates[data_ID + 1], photon.y, memory_order_relaxed);
          atomic_store_explicit(&PhotonCoordinates[data_ID + 2], photon.z, memory_order_relaxed);
@@ -1621,7 +1618,7 @@ kernel void MCRamanKernel(
            Output[render_ID].type = photon.type;
            Output[render_ID].W = photon.W;
         }
-    }
+    } // end for iPosRuns
      
     return;
 }

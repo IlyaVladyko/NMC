@@ -33,7 +33,7 @@ void ReadRunParams(const char * argv[], struct RunParams* runParams, struct Tiss
     switch (runParams->mckernelflag) {
         case SIM_TYPE_RAMAN:
         {
-            /**** INPUT FILES *****/
+            // launch parameters
             fgets(buf, 32, fid);
             sscanf(buf, "%f", &runParams->width); // [mm]
             fgets(buf, 32, fid);
@@ -43,28 +43,8 @@ void ReadRunParams(const char * argv[], struct RunParams* runParams, struct Tiss
             fgets(buf, 32, fid);
             sscanf(buf, "%d", &runParams->Nz);  // # of bins
 
-//            fgets(buf, 32, fid);
-//            sscanf(buf, "%f", &tissParams->n);     // [-]
-//            fgets(buf, 32, fid);
-//            sscanf(buf, "%f", &tissParams->g);     // [-]
-//            fgets(buf, 32, fid);
-//            sscanf(buf, "%f", &tissParams->r_s);     // [mm]
-//            fgets(buf, 32, fid);
-//            sscanf(buf, "%f", &tissParams->r_a);     // [mm]
-            fgets(buf, 32, fid);
-            sscanf(buf, "%f", &tissParams->raman_prob);     // [-]
-            fgets(buf, 32, fid);
-            sscanf(buf, "%f", &tissParams->stim_raman_prob);     // [-]
-            fgets(buf, 32, fid);
-            sscanf(buf, "%f", &tissParams->interaction_distance);     // [mm]
-
-            // launch parameters
             fgets(buf, 32, fid);
             sscanf(buf, "%f", &runParams->step_size);  // [mm]
-//            fgets(buf, 32, fid);
-//            sscanf(buf, "%d", &runParams->ph_total);  // # of all photons
-//            fgets(buf, 32, fid);
-//            sscanf(buf, "%d", &runParams->ph_batch);  // # of photons in a batch
 
             fgets(buf, 32, fid);
             sscanf(buf, "%f", &runParams->laser_beam_radius);  // initial beam radius [mm]
@@ -92,11 +72,27 @@ void ReadRunParams(const char * argv[], struct RunParams* runParams, struct Tiss
                 fgets(buf, 32, fid);
                 sscanf(buf, "%f", &tissParams->musv[i]);    // scattering coeff [mm^-1]
                 fgets(buf, 32, fid);
-                sscanf(buf, "%f", &tissParams->gv[i]);        // anisotropy of scatter [dimensionless]
+                sscanf(buf, "%f", &tissParams->gv[i]);        // anisotropy of scatter [-]
             }
             
             fgets(buf, 32, fid);
             sscanf(buf, "%f", &tissParams->n);     // [-]
+            
+            // tissue optical properties for Raman scattering
+            for (int i = 1; i <= runParams->Nt; i++) {
+                fgets(buf, 32, fid);
+                sscanf(buf, "%f", &tissParams->muav_r[i]);    // absorption coeff [mm^-1]
+                fgets(buf, 32, fid);
+                sscanf(buf, "%f", &tissParams->musv_r[i]);    // scattering coeff [mm^-1]
+                fgets(buf, 32, fid);
+                sscanf(buf, "%f", &tissParams->gv_r[i]);        // anisotropy of scatter [-]
+            }
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->raman_prob);     // [-]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->stim_raman_prob);     // [-]
+            fgets(buf, 32, fid);
+            sscanf(buf, "%f", &tissParams->interaction_distance);     // [mm]
 
             fclose(fid);
             
@@ -419,20 +415,19 @@ void PrintRunRamanParameters(const struct RunParams* runParams, const struct Tis
 
     NSLog(@"\nRUN:\n");
     NSLog(@"step size = %0.4f [mm]\n", runParams->step_size);
-//    NSLog(@"photon total = %d, batch = %d\n", runParams->ph_total, runParams->ph_batch);
     NSLog(@"detection state = %d\n", runParams->det_state);
     
     NSLog(@"\nMEDIUM:\n");
     for (int i = 1; i <= runParams->Nt; i++) {
-        NSLog(@"muav[%d] = %0.4f [mm^-1]\n", i, tissParams->muav[i]);
-        NSLog(@"musv[%d] = %0.4f [mm^-1]\n", i, tissParams->musv[i]);
-        NSLog(@"gv[%d] = %0.4f \n", i, tissParams->gv[i]);
+        NSLog(@"muav[%d] = %0.4f , %0.4f (Raman shifted) [mm^-1]\n", i, tissParams->muav[i], tissParams->muav_r[i]);
+        NSLog(@"musv[%d] = %0.4f , %0.4f (Raman shifted) [mm^-1]\n", i, tissParams->musv[i], tissParams->musv_r[i]);
+        NSLog(@"gv[%d] = %0.4f, %0.4f (Raman shifted) [-] \n", i, tissParams->gv[i], tissParams->gv_r[i]);
     }
     NSLog(@"n = %0.4f\n", tissParams->n);
-    NSLog(@"Raman prob = %0.4f\n", tissParams->raman_prob);
-    NSLog(@"SRS prob = %0.4f, interaction distance = %0.4f [mm]\n", tissParams->stim_raman_prob, tissParams->interaction_distance);
+    NSLog(@"Raman prob = %0.4f, SRS prob = %0.4f\n", tissParams->raman_prob, tissParams->stim_raman_prob);
+    NSLog(@"interaction distance = %0.4f [mm]\n", tissParams->interaction_distance);
     
-    NSLog(@"\nINITIAL CONDITION:\n");
+    NSLog(@"\nSETUP:\n");
     NSLog(@"Beam width = %0.4f, beam delay = %0.4f\n", runParams->laser_beam_pulse_width, runParams->laser_beam_pulse_delay);
     NSLog(@"Beam radius = %0.4f [mm], Cut-off radius = %0.4f [mm]\n", runParams->laser_beam_radius, runParams->cutoff_radius);
     
@@ -943,10 +938,10 @@ void ReadRunParamsRaman(int argc, const char * argv[], struct RunParams* runPara
     #endif
     
     N_tot = N_laser + N_raman;
-    vel = C_RAMAN/index_of_refraction;        // Speed of light in the scattering medium
-    dt = step_size*index_of_refraction/C_RAMAN;
+    vel = LIGHTSPEED_MM_PS/index_of_refraction;        // Speed of light in the scattering medium
+    dt = step_size*index_of_refraction/LIGHTSPEED_MM_PS;
     stim_prob = stim_raman_prob*step_size;
-    N_steps = (unsigned int)( ceil( C_RAMAN*time_simulated/(index_of_refraction*step_size) ) );
+    N_steps = (unsigned int)( ceil( LIGHTSPEED_MM_PS*time_simulated/(index_of_refraction*step_size) ) );
     
     printf("Simulating %u runs using %u CPU threads\n", N_runs, CPU_THREADS);
     printf("%u total photons are being simulated in each run\n", N_tot);
@@ -1012,10 +1007,10 @@ void ReadRunParamsRaman(int argc, const char * argv[], struct RunParams* runPara
                 
                 // Gaussian temporal profile
                 xi = hybrid_Taus( &data[iPos].seed );
-                sigma = 0.42466090014400953*laser_beam_pulse_width*C_RAMAN;    // 1/( 2*sqrt( 2*ln(2) ) )
+                sigma = 0.42466090014400953*laser_beam_pulse_width*LIGHTSPEED_MM_PS;    // 1/( 2*sqrt( 2*ln(2) ) )
                 R = sqrt( 2.0*sigma*sigma*log( 1.0/(1.0-xi) ) );
                 theta = 2.0*PI*hybrid_Taus( &data[iPos].seed );
-                data[iPos].r.z = R*sin( theta ) - laser_beam_pulse_delay*C_RAMAN;
+                data[iPos].r.z = R*sin( theta ) - laser_beam_pulse_delay*LIGHTSPEED_MM_PS;
                 // Check to make sure none of the photons are in the sample at the begining
                 if( data[iPos].r.z >= 0.0 )
                 {
@@ -1050,10 +1045,10 @@ void ReadRunParamsRaman(int argc, const char * argv[], struct RunParams* runPara
                 
                 // Gaussian temporal profile
                 xi = hybrid_Taus( &data[iPos].seed );
-                sigma = 0.42466090014400953*probe_beam_pulse_width*C_RAMAN;    // 1/( 2*sqrt( 2*ln(2) ) )
+                sigma = 0.42466090014400953*probe_beam_pulse_width*LIGHTSPEED_MM_PS;    // 1/( 2*sqrt( 2*ln(2) ) )
                 R = sqrt( 2.0*sigma*sigma*log( 1.0/(1.0-xi) ) );
                 theta = 2.0*PI*hybrid_Taus( &data[iPos].seed );
-                data[iPos].r.z = R*sin( theta ) - probe_beam_pulse_delay*C_RAMAN;
+                data[iPos].r.z = R*sin( theta ) - probe_beam_pulse_delay*LIGHTSPEED_MM_PS;
                 // Check to make sure none of the photons are in the sample at the begining
                 if( data[iPos].r.z >= 0.0 )
                 {
@@ -1079,7 +1074,7 @@ void ReadRunParamsRaman(int argc, const char * argv[], struct RunParams* runPara
             for( j = 0; j < N_steps; j++ )
             {
                 #if( SRS == YES )
-                error = step_forward_cpu( data, N_Raman_Counter, &N_Raman, i, pump_out_f[i], raman_out_f[i], pump_out_b[i], raman_out_b[i], j*index_of_refraction*step_size/C_RAMAN, &n_total );
+                error = step_forward_cpu( data, N_Raman_Counter, &N_Raman, i, pump_out_f[i], raman_out_f[i], pump_out_b[i], raman_out_b[i], j*index_of_refraction*step_size/LIGHTSPEED_MM_PS, &n_total );
                 #else
                 error = step_forward_cpu( data, i, pump_out_f[i], raman_out_f[i], pump_out_b[i], raman_out_b[i], j*index_of_refraction*step_size/C_RAMAN, &n_total );
                 #endif

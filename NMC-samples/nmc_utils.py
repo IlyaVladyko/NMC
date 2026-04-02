@@ -46,9 +46,6 @@ _MCI_KEYS_ORDER: Tuple[str, ...] = (
     "mckernelflag",
     "width",
     "Nx", "Ny", "Nz",
-    "raman_prob",
-    "stim_raman_prob",
-    "interaction_distance",
     "step_size",
     "laser_beam_radius",
     "laser_beam_pulse_width",
@@ -58,11 +55,122 @@ _MCI_KEYS_ORDER: Tuple[str, ...] = (
     "numerial_aperture",
     "det_state",
     "Nt",
-    "mu_a",
-    "mu_s",
+    "mua",
+    "mus",
     "g",
     "index_of_refraction",
+    "mua_r",
+    "mus_r",
+    "g_r",
+    "raman_prob",
+    "stim_raman_prob",
+    "interaction_distance",
 )
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+def compute_mie_medium_params(
+    d: float,
+    lambda_exc: float,
+    raman_shift: float,
+    f_v: float | np.ndarray,
+    n_medium_exc: float,
+    n_particle_exc: complex,
+    n_medium_r: float | None = None,
+    n_particle_r: complex | None = None,
+    stokes: bool = True,
+) -> Dict[str, object]:
+    """
+    Compute optical properties from Mie theory at excitation and Raman-shifted wavelengths.
+
+    Inputs:
+    d:              Particle diameter [nm];
+    lambda_exc:     Excitation wavelength [nm];
+    raman_shift:    Raman shift [cm^-1];
+    f_v:            Particle volume fraction (0 to 1), scalar or array;
+    n_medium_exc:   Medium index of refraction at excitation wavelength;
+    n_particle_exc: Particle complex index of refraction at excitation wavelength 
+                    (m= n - k*j, where k = lambd_vac*mu_a/4pi);
+    n_medium_r:     Medium index of refraction at Raman wavelength;
+    n_particle_r:   Particle complex index of refraction at Raman wavelength;
+    stokes:         Whether to compute Stokes (True) or anti-Stokes (False) shifts.
+
+    Returns keys:
+      lambda_exc, lambda_r,
+      mus, mua, g,
+      mus_r, mua_r, g_r,
+    where mus,mua are in [inv units as for diameter].
+    """
+    try:
+        import miepython as mie
+    except ImportError as e:
+        raise ImportError(
+            "miepython is required for compute_mie_medium_params(). "
+            "Install with: pip install miepython"
+        ) from e
+
+    # Raman-shifted wavelength from Raman shift (cm^-1)
+    nu_exc = 1e7 / float(lambda_exc)  # cm^-1
+    delta = float(raman_shift)
+    nu_r = nu_exc - delta if stokes else nu_exc + delta
+    if nu_r <= 0:
+        raise ValueError(
+            f"Invalid shifted wavenumber: {nu_r:.6g} cm^-1. "
+            "Check lambda_exc and raman_shift."
+        )
+    lambda_r = 1e7 / nu_r
+
+    # Optional dispersion override at Raman wavelength
+    n_medium_r = n_medium_exc if n_medium_r is None else n_medium_r
+    n_particle_r = n_particle_exc if n_particle_r is None else n_particle_r
+
+    # Geometric cross-section [mm^2]
+    area = np.pi * (float(d/1e6) ** 2) /4
+
+    # Excitation wavelength
+    Qext_e, Qsca_e,_, g_e = mie.efficiencies_mx(
+        n_particle_exc, np.pi * d * n_medium_exc / float(lambda_exc)
+    )
+    Csca_e = Qsca_e * area
+    Cabs_e = max((Qext_e - Qsca_e) * area, 0.0)
+
+    # Raman-shifted wavelength
+    Qext_r, Qsca_r, _, g_r = mie.efficiencies_mx(
+        n_particle_r, np.pi*d*n_medium_r/float(lambda_r)
+    )
+    Csca_r = Qsca_r * area
+    Cabs_r = max((Qext_r - Qsca_r) * area, 0.0)
+
+    # Number density rho [1/mm^3]
+    f_v_arr = np.asarray(f_v, dtype=float)
+    rho = 6.0 * f_v_arr / (np.pi * ((d/1e6) ** 3))
+
+    # Coefficients [1/mm]
+    mus = rho * Csca_e 
+    mua = rho * Cabs_e 
+    mus_r = rho * Csca_r 
+    mua_r = rho * Cabs_r 
+
+    # Return python scalars if scalar input was provided
+    scalar_in = np.ndim(f_v_arr) == 0
+    if scalar_in:
+        mus = float(mus)
+        mua = float(mua)
+        mus_r = float(mus_r)
+        mua_r = float(mua_r)
+
+    return {
+        "lambda_exc_nm": float(lambda_exc),
+        "lambda_r_nm": float(lambda_r),
+        "mus": mus,
+        "mua": mua,
+        "g": float(g_e),
+        "mus_r": mus_r,
+        "mua_r": mua_r,
+        "g_r": float(g_r),
+    }
 
 
 # =============================================================================
@@ -141,10 +249,13 @@ _BASE_PARAMS: Dict = {
     "numerial_aperture":     1.0,      # n_exit · sin(θ_max)
     "det_state":             0,        # 0 = reflectance, 1 = transmittance
     "Nt":                    1,
-    "mu_a":                  0.1,      # mm⁻¹
-    "mu_s":                  10.0,     # mm⁻¹
+    "mua":                   0.1,      # mm⁻¹
+    "mus":                   10.0,     # mm⁻¹
     "g":                     0.6,
     "index_of_refraction":   1.6,
+    "mua_r":                 0.1,      # mm⁻¹
+    "mus_r":                 10.0,     # mm⁻¹
+    "g_r":                   0.6,
 }
 
 
@@ -385,12 +496,7 @@ def run(
     if verbose:
         print(f"[nmc] Done (exit code {proc.returncode}).")
 
-    return subprocess.CompletedProcess(
-        args=cmd,
-        returncode=proc.returncode,
-        stdout="\n".join(stdout_lines),
-        stderr="\n".join(stderr_lines),
-    )
+    return 
 
 
 # =============================================================================
@@ -804,3 +910,4 @@ if __name__ == "__main__":
     print("\n── parse_mci ──")
     mci = parse_mci(mci_path)
     print(mci)
+    #compute_mie_medium_params(1000,1064,668,0.0114,1.48,2.2+0j)
